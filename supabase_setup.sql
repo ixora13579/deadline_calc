@@ -10,12 +10,16 @@ create table if not exists public.deadline_calcs (
   days         integer not null check (days between 0 and 3650),
   calendar_due date not null,
   workday_due  date not null,
+  due_kind     text not null default 'workday' check (due_kind in ('calendar', 'workday')),
   created_at   timestamptz not null default now()
 );
 
--- 예전 표에는 작성자 이름 칸이 없으므로 추가한다
+-- 예전 표에는 작성자 이름 · 등록 기준 칸이 없으므로 추가한다
+-- due_kind : 공유 달력에 올린 마감일이 달력 기준(calendar)인지 근무일 기준(workday)인지
 alter table public.deadline_calcs
   add column if not exists user_name text check (char_length(user_name) <= 50);
+alter table public.deadline_calcs
+  add column if not exists due_kind text not null default 'workday' check (due_kind in ('calendar', 'workday'));
 
 create index if not exists deadline_calcs_user_idx on public.deadline_calcs (user_id, created_at desc);
 create index if not exists deadline_calcs_calendar_due_idx on public.deadline_calcs (calendar_due);
