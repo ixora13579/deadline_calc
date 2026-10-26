@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>업무 기한 계산기</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --purple-900: #2e1065;
+    --purple-700: #6d28d9;
+    --purple-600: #7c3aed;
+    --purple-500: #8b5cf6;
+    --purple-100: #ede9fe;
+    --purple-50:  #f5f3ff;
+    --ink: #1f1235;
+    --muted: #6b6380;
+    --danger: #dc2626;
+    --ok: #059669;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+    color: var(--ink);
+    background: linear-gradient(135deg, #3b0764 0%, #6d28d9 45%, #a855f7 75%, #e9d5ff 100%);
+    background-attachment: fixed;
+    padding: 32px 16px 48px;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; display: grid; gap: 20px; }
+
+  header { color: #fff; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 1.7rem; letter-spacing: -0.02em; }
+  header p { margin: 4px 0 0; opacity: .8; font-size: .92rem; }
+  .user-chip { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,.15);
+    border: 1px solid rgba(255,255,255,.3); padding: 6px 6px 6px 14px; border-radius: 999px; font-size: .88rem; }
+
+  .card {
+    background: rgba(255,255,255,.96);
+    border-radius: 20px;
+    padding: 24px;
+    box-shadow: 0 20px 45px -15px rgba(46,16,101,.55);
+  }
+  .card h2 { margin: 0 0 16px; font-size: 1.1rem; color: var(--purple-900); }
+
+  label { display: block; font-size: .85rem; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+  input {
+    width: 100%; padding: 12px 14px; font-size: 1rem; font-family: inherit;
+    border: 1.5px solid #ddd6fe; border-radius: 12px; background: var(--purple-50); color: var(--ink);
+    outline: none; transition: border-color .15s, box-shadow .15s;
+  }
+  input:focus { border-color: var(--purple-500); box-shadow: 0 0 0 4px rgba(139,92,246,.18); background: #fff; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+  .full { grid-column: 1 / -1; }
+
+  .btns { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+  button {
+    font-family: inherit; font-size: .95rem; font-weight: 600; cursor: pointer;
+    border: none; border-radius: 12px; padding: 11px 20px; transition: transform .1s, opacity .15s;
+  }
+  button:active { transform: scale(.97); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .primary { color: #fff; background: linear-gradient(135deg, var(--purple-600), #c026d3); box-shadow: 0 8px 18px -8px rgba(124,58,237,.8); }
+  .ghost { color: var(--purple-700); background: var(--purple-100); }
+  .small { padding: 6px 12px; font-size: .82rem; border-radius: 999px; }
+  .white { background: #fff; color: var(--purple-700); }
+
+  .results { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .result {
+    border-radius: 18px; padding: 20px; color: #fff; position: relative; overflow: hidden;
+    background: linear-gradient(135deg, #7c3aed, #a855f7);
+  }
+  .result.work { background: linear-gradient(135deg, #4c1d95, #7c3aed); }
+  .result .tag { font-size: .8rem; opacity: .85; font-weight: 600; }
+  .result .date { font-size: 1.75rem; font-weight: 800; margin: 8px 0 2px; letter-spacing: -0.02em; }
+  .result .sub { font-size: .85rem; opacity: .85; }
+  .dday {
+    position: absolute; top: 16px; right: 16px; background: rgba(255,255,255,.95); color: var(--purple-700);
+    font-weight: 800; font-size: .95rem; padding: 6px 12px; border-radius: 999px;
+  }
+  .dday.past { color: var(--danger); }
+  .dday.today { color: #c026d3; }
+  .note { margin: 14px 0 0; font-size: .82rem; color: var(--muted); }
+  .holiday-note { margin: 14px 0 0; padding: 10px 14px; border-radius: 12px; font-size: .85rem; line-height: 1.6;
+    background: var(--purple-50); color: var(--purple-700); border: 1px solid #ddd6fe; white-space: pre-line; }
+
+  #msgBox { display: none; padding: 12px 16px; border-radius: 12px; font-size: .9rem; }
+  #msgBox.error { display: block; background: #fef2f2; color: var(--danger); border: 1px solid #fecaca; }
+  #msgBox.success { display: block; background: #ecfdf5; color: var(--ok); border: 1px solid #a7f3d0; }
+  #msgBox.info { display: block; background: var(--purple-50); color: var(--purple-700); border: 1px solid #ddd6fe; }
+
+  .history { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  .history li {
+    display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; align-items: center;
+    padding: 14px 16px; border-radius: 14px; background: var(--purple-50); border: 1px solid #ede9fe;
+  }
+  .history .title { font-weight: 700; color: var(--purple-900); }
+  .history .meta { grid-column: 1 / 2; font-size: .84rem; color: var(--muted); line-height: 1.6; }
+  .history .meta b { color: var(--ink); }
+  .pill { display: inline-block; font-size: .75rem; font-weight: 700; padding: 1px 8px; border-radius: 999px;
+    background: var(--purple-100); color: var(--purple-700); margin-left: 4px; }
+  .pill.past { background: #fee2e2; color: var(--danger); }
+  .empty { color: var(--muted); font-size: .9rem; text-align: center; padding: 12px 0; }
+
+  .hidden { display: none !important; }
+  body:not(.logged-in) .only-in { display: none !important; }
+  body.logged-in .only-out { display: none !important; }
+
+  @media (max-width: 480px) {
+    .card { padding: 18px; }
+    .result .date { font-size: 1.5rem; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <h1>업무 기한 계산기</h1>
+      <p>시작일과 기간을 넣으면 달력 기준 · 근무일 기준 마감일을 알려 드립니다.</p>
+    </div>
+    <div id="authBox" class="user-chip only-in">
+      <span id="userEmail"></span>
+      <button id="logoutBtn" class="small white" type="button">로그아웃</button>
+    </div>
+  </header>
+
+  <div id="msgBox"></div>
+
+  <!-- 로그인 전 -->
+  <section class="card only-out">
+    <h2>로그인</h2>
+    <form id="loginForm" class="grid">
+      <div>
+        <label for="emailInput">이메일</label>
+        <input id="emailInput" type="email" autocomplete="email" placeholder="you@example.com" required>
+      </div>
+      <div>
+        <label for="passwordInput">비밀번호 (6자 이상)</label>
+        <input id="passwordInput" type="password" autocomplete="current-password" minlength="6" required>
+      </div>
+      <div class="btns full" style="margin-top:4px">
+        <button id="loginBtn" class="primary" type="submit">로그인</button>
+        <button id="signUpBtn" class="ghost" type="button">회원가입</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- 계산기 -->
+  <section class="card">
+    <h2>기한 계산</h2>
+    <form id="calcForm" class="grid">
+      <div class="full">
+        <label for="titleInput">업무명 (선택)</label>
+        <input id="titleInput" type="text" maxlength="100" placeholder="예: 분기 보고서 제출">
+      </div>
+      <div>
+        <label for="startInput">시작일</label>
+        <input id="startInput" type="date" required>
+      </div>
+      <div>
+        <label for="daysInput">기간 (일)</label>
+        <input id="daysInput" type="number" min="0" max="3650" step="1" placeholder="예: 14" required>
+      </div>
+      <div class="btns full" style="margin-top:4px">
+        <button class="primary" type="submit">계산하기</button>
+        <button id="saveBtn" class="ghost only-in" type="button" disabled>기록 저장</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- 결과 -->
+  <section id="resultCard" class="card hidden">
+    <h2 id="resultTitle">계산 결과</h2>
+    <div class="results">
+      <div class="result">
+        <span id="calDday" class="dday"></span>
+        <div class="tag">① 달력 기준 마감일</div>
+        <div id="calDate" class="date"></div>
+        <div id="calSub" class="sub"></div>
+      </div>
+      <div class="result work">
+        <span id="workDday" class="dday"></span>
+        <div class="tag">② 근무일 기준 마감일 (토·일·공휴일 제외)</div>
+        <div id="workDate" class="date"></div>
+        <div id="workSub" class="sub"></div>
+      </div>
+    </div>
+    <p id="holidayNote" class="holiday-note hidden"></p>
+    <p class="note">기간은 시작일 다음 날부터 셉니다. 기간이 0일이면 시작일이 마감일입니다. 근무일 기준에서는 한국 공휴일(설날·추석·국경일·대체공휴일·선거일)도 뺍니다.</p>
+  </section>
+
+  <!-- 저장 기록 (로그인 후) -->
+  <section class="card only-in">
+    <h2>내 기한 기록</h2>
+    <ul id="historyList" class="history"></ul>
+  </section>
+
+</div>
+
+<script>
+// ===== 설정 : Supabase → Project Settings → API Keys 에서 복사 =====
+// 공개용 키(Publishable 또는 anon public)만 넣습니다. 비밀 키(Secret · service_role)는 절대 넣지 않습니다.
+const SUPABASE_URL = 'https://여기에-프로젝트-주소.supabase.co';
+const SUPABASE_KEY = '여기에-공개용-키';
+
+// ===== 날짜 계산 (화면과 무관한 순수 함수) =====
+const WEEK = ['일', '월', '화', '수', '목', '금', '토'];
+
+// 'YYYY-MM-DD' → 로컬 Date (toISOString을 쓰지 않음)
+function parseDate(s) {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+function formatDate(d) {
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+function todayDate() {
+  const n = new Date();
+  return new Date(n.getFullYear(), n.getMonth(), n.getDate());
+}
+// 달력 기준 : 시작일 + n일
+function addCalendarDays(start, n) {
+  return new Date(start.getFullYear(), start.getMonth(), start.getDate() + n);
+}
+// 한국 공휴일 표 (대체공휴일 · 선거일 포함). 설날·추석·부처님오신날은 음력이라 해마다 직접 적는다
+// 새 해가 되면 아래에 줄을 추가하고 HOLIDAY_YEARS도 늘린다
+const HOLIDAY_YEARS = { from: 2025, to: 2028 };
+const HOLIDAYS = {
+  // 2025
+  '2025-01-01': '신정', '2025-01-27': '임시공휴일',
+  '2025-01-28': '설날 연휴', '2025-01-29': '설날', '2025-01-30': '설날 연휴',
+  '2025-03-01': '삼일절', '2025-03-03': '대체공휴일(삼일절)',
+  '2025-05-05': '어린이날·부처님오신날', '2025-05-06': '대체공휴일(부처님오신날)',
+  '2025-06-03': '대통령선거일', '2025-06-06': '현충일', '2025-08-15': '광복절',
+  '2025-10-03': '개천절', '2025-10-05': '추석 연휴', '2025-10-06': '추석', '2025-10-07': '추석 연휴',
+  '2025-10-08': '대체공휴일(추석)', '2025-10-09': '한글날', '2025-12-25': '성탄절',
+  // 2026
+  '2026-01-01': '신정',
+  '2026-02-16': '설날 연휴', '2026-02-17': '설날', '2026-02-18': '설날 연휴',
+  '2026-03-01': '삼일절', '2026-03-02': '대체공휴일(삼일절)',
+  '2026-05-05': '어린이날', '2026-05-24': '부처님오신날', '2026-05-25': '대체공휴일(부처님오신날)',
+  '2026-06-03': '지방선거일', '2026-06-06': '현충일',
+  '2026-08-15': '광복절', '2026-08-17': '대체공휴일(광복절)',
+  '2026-09-24': '추석 연휴', '2026-09-25': '추석', '2026-09-26': '추석 연휴',
+  '2026-10-03': '개천절', '2026-10-05': '대체공휴일(개천절)', '2026-10-09': '한글날', '2026-12-25': '성탄절',
+  // 2027
+  '2027-01-01': '신정',
+  '2027-02-06': '설날 연휴', '2027-02-07': '설날', '2027-02-08': '설날 연휴', '2027-02-09': '대체공휴일(설날)',
+  '2027-03-01': '삼일절', '2027-05-05': '어린이날', '2027-05-13': '부처님오신날', '2027-06-06': '현충일',
+  '2027-08-15': '광복절', '2027-08-16': '대체공휴일(광복절)',
+  '2027-09-14': '추석 연휴', '2027-09-15': '추석', '2027-09-16': '추석 연휴',
+  '2027-10-03': '개천절', '2027-10-04': '대체공휴일(개천절)',
+  '2027-10-09': '한글날', '2027-10-11': '대체공휴일(한글날)',
+  '2027-12-25': '성탄절', '2027-12-27': '대체공휴일(성탄절)',
+  // 2028
+  '2028-01-01': '신정',
+  '2028-01-26': '설날 연휴', '2028-01-27': '설날', '2028-01-28': '설날 연휴',
+  '2028-03-01': '삼일절', '2028-04-12': '국회의원선거일', '2028-05-02': '부처님오신날',
+  '2028-05-05': '어린이날', '2028-06-06': '현충일', '2028-08-15': '광복절',
+  '2028-10-02': '추석 연휴', '2028-10-03': '추석·개천절', '2028-10-04': '추석 연휴',
+  '2028-10-05': '대체공휴일(추석)', '2028-10-09': '한글날', '2028-12-25': '성탄절'
+};
+
+// 근무일 기준 : 시작일 다음 날부터 토·일 · 공휴일을 건너뛰며 n일
+// 결과 : { date, weekend: 건너뛴 주말 수, holidays: [{date, name}] (평일 공휴일만) }
+function addWorkdays(start, n) {
+  const d = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  let count = 0, weekend = 0;
+  const holidays = [];
+  while (count < n) {
+    d.setDate(d.getDate() + 1);
+    const w = d.getDay();
+    const name = HOLIDAYS[formatDate(d)];
+    if (w === 0 || w === 6) weekend++;
+    else if (name) holidays.push({ date: formatDate(d), name });
+    else count++;
+  }
+  return { date: d, weekend, holidays };
+}
+// b - a (일 수). 시차 영향을 없애려고 UTC 날짜끼리 뺀다
+function daysBetween(a, b) {
+  const ua = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
+  const ub = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate());
+  return Math.round((ub - ua) / 86400000);
+}
+function ddayText(left) {
+  if (left > 0) return `D-${left}`;
+  if (left === 0) return 'D-Day';
+  return `D+${-left}`;
+}
+function calcDeadline(startStr, days) {
+  const start = parseDate(startStr);
+  const cal = addCalendarDays(start, days);
+  const wd = addWorkdays(start, days);
+  const work = wd.date;
+  const today = todayDate();
+  return {
+    start: startStr, days,
+    calendarDue: formatDate(cal), workdayDue: formatDate(work),
+    calendarWeek: WEEK[cal.getDay()], workdayWeek: WEEK[work.getDay()],
+    calendarLeft: daysBetween(today, cal), workdayLeft: daysBetween(today, work),
+    weekendSkipped: wd.weekend,
+    holidaysSkipped: wd.holidays,
+    // 계산 구간이 공휴일 표 범위를 벗어나면 공휴일을 다 못 뺐을 수 있다
+    outOfRange: start.getFullYear() < HOLIDAY_YEARS.from || work.getFullYear() > HOLIDAY_YEARS.to
+  };
+}
+
+// ===== 공통 화면 도우미 =====
+function $(id) {
+  const el = document.getElementById(id);
+  if (!el) console.error('요소 없음: ' + id);
+  return el;
+}
+function showMessage(text, type = 'info') {
+  const box = $('msgBox');
+  box.textContent = text;
+  box.className = text ? type : '';
+}
+
+// ===== 저장 위치 (Supabase 호출은 이 구역에서만) =====
+function checkConfig() {
+  if (!SUPABASE_URL.includes('.supabase.co') || SUPABASE_URL.includes('여기에') || SUPABASE_KEY.includes('여기에')) {
+    return '설정이 비어 있습니다. index.html 위쪽의 SUPABASE_URL · SUPABASE_KEY를 채워 주세요. (계산은 로그인 없이도 됩니다)';
+  }
+  if (SUPABASE_KEY.startsWith('sb_secret_')) return '비밀 키가 들어 있습니다. 공개용 키(Publishable)로 바꿔 주세요.';
+  try {
+    const payload = JSON.parse(atob(SUPABASE_KEY.split('.')[1]));
+    if (payload.role === 'service_role') return 'service_role 키가 들어 있습니다. anon 공개용 키로 바꿔 주세요.';
+  } catch (e) { /* JWT 형식이 아니면 Publishable 키 */ }
+  return '';
+}
+const configError = checkConfig();
+const db = configError ? null : supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+function dbError(error) {
+  const msg = error.message || String(error);
+  if (msg.includes('Invalid login credentials')) return new Error('이메일 또는 비밀번호가 맞지 않습니다.');
+  if (msg.includes('Email not confirmed')) return new Error('이메일 인증을 먼저 마쳐 주세요. 받은 메일함을 확인하세요.');
+  if (msg.includes('User already registered')) return new Error('이미 가입된 이메일입니다. 로그인해 주세요.');
+  if (msg.includes('Password should be')) return new Error('비밀번호는 6자 이상이어야 합니다.');
+  return new Error('저장소 오류: ' + msg);
+}
+async function loadUser() {
+  const { data, error } = await db.auth.getSession();
+  if (error) throw dbError(error);
+  return data.session ? data.session.user : null;
+}
+async function signIn(email, password) {
+  const { error } = await db.auth.signInWithPassword({ email, password });
+  if (error) throw dbError(error);
+}
+async function signUp(email, password) {
+  const { data, error } = await db.auth.signUp({ email, password });
+  if (error) throw dbError(error);
+  return data.session !== null; // false 이면 메일 인증 필요
+}
+async function signOut() {
+  const { error } = await db.auth.signOut();
+  if (error) throw dbError(error);
+}
+async function loadRecords() {
+  const { data, error } = await db.from('deadline_calcs')
+    .select('id, title, start_date, days, calendar_due, workday_due, created_at')
+    .order('created_at', { ascending: false });
+  if (error) throw dbError(error);
+  return data;
+}
+// user_id는 보내지 않는다. DB가 로그인한 계정으로 채운다
+async function insertRecord(r) {
+  const { error } = await db.from('deadline_calcs').insert({
+    title: r.title || null, start_date: r.start, days: r.days,
+    calendar_due: r.calendarDue, workday_due: r.workdayDue
+  });
+  if (error) throw dbError(error);
+}
+async function deleteRecord(id) {
+  const { data, error } = await db.from('deadline_calcs').delete().eq('id', id).select('id');
+  if (error) throw dbError(error);
+  if (!data || data.length === 0) throw new Error('내 기록만 지울 수 있습니다.');
+}
+
+// ===== 화면 동작 =====
+let currentUser = null;
+let lastResult = null;
+
+function setDday(el, left) {
+  el.textContent = ddayText(left);
+  el.className = 'dday' + (left < 0 ? ' past' : left === 0 ? ' today' : '');
+}
+
+function doCalc(e) {
+  e.preventDefault();
+  const start = $('startInput').value;
+  const days = Number($('daysInput').value);
+  if (!start) return showMessage('시작일을 입력해 주세요.', 'error');
+  if (!Number.isInteger(days) || days < 0 || days > 3650) return showMessage('기간은 0~3650 사이의 정수로 입력해 주세요.', 'error');
+
+  const r = calcDeadline(start, days);
+  r.title = $('titleInput').value.trim();
+  lastResult = r;
+
+  $('resultTitle').textContent = r.title ? `계산 결과 · ${r.title}` : '계산 결과';
+  $('calDate').textContent = `${r.calendarDue} (${r.calendarWeek})`;
+  $('calSub').textContent = `${r.start}부터 ${r.days}일 뒤`;
+  setDday($('calDday'), r.calendarLeft);
+  $('workDate').textContent = `${r.workdayDue} (${r.workdayWeek})`;
+  $('workSub').textContent = `근무일 ${r.days}일 · 주말 ${r.weekendSkipped}일 · 공휴일 ${r.holidaysSkipped.length}일 제외`;
+  setDday($('workDday'), r.workdayLeft);
+
+  const hn = $('holidayNote');
+  const lines = [];
+  if (r.holidaysSkipped.length) {
+    lines.push('제외한 공휴일 : ' + r.holidaysSkipped.map(h => `${h.date} ${h.name}`).join(', '));
+  }
+  if (r.outOfRange) {
+    lines.push(`※ 공휴일 표는 ${HOLIDAY_YEARS.from}~${HOLIDAY_YEARS.to}년만 있습니다. 범위 밖 날짜는 주말만 뺐습니다.`);
+  }
+  hn.textContent = lines.join('\n');
+  hn.classList.toggle('hidden', lines.length === 0);
+
+  $('resultCard').classList.remove('hidden');
+  $('saveBtn').disabled = false;
+  showMessage('');
+}
+
+async function doSave() {
+  if (!lastResult) return;
+  $('saveBtn').disabled = true;
+  try {
+    await insertRecord(lastResult);
+    showMessage('기록을 저장했습니다.', 'success');
+    await renderHistory();
+  } catch (err) {
+    showMessage(err.message, 'error');
+    $('saveBtn').disabled = false;
+  }
+}
+
+async function renderHistory() {
+  const list = $('historyList');
+  list.replaceChildren();
+  let rows;
+  try {
+    rows = await loadRecords();
+  } catch (err) {
+    showMessage(err.message, 'error');
+    return;
+  }
+  if (rows.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'empty';
+    li.textContent = '저장한 기록이 없습니다. 계산 후 [기록 저장]을 눌러 보세요.';
+    list.appendChild(li);
+    return;
+  }
+  const today = todayDate();
+  for (const row of rows) {
+    const li = document.createElement('li');
+
+    const title = document.createElement('div');
+    title.className = 'title';
+    title.textContent = row.title || '(업무명 없음)';
+
+    const del = document.createElement('button');
+    del.className = 'small ghost';
+    del.type = 'button';
+    del.textContent = '삭제';
+    del.addEventListener('click', () => removeRecord(row.id));
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.append(`시작 ${row.start_date} · ${row.days}일`, document.createElement('br'));
+    meta.append(makeDue('달력', row.calendar_due, today), document.createTextNode('  ·  '), makeDue('근무일', row.workday_due, today));
+
+    li.append(title, del, meta);
+    list.appendChild(li);
+  }
+}
+function makeDue(label, due, today) {
+  const span = document.createElement('span');
+  const b = document.createElement('b');
+  b.textContent = due;
+  const left = daysBetween(today, parseDate(due));
+  const pill = document.createElement('span');
+  pill.className = 'pill' + (left < 0 ? ' past' : '');
+  pill.textContent = ddayText(left);
+  span.append(`${label} `, b, pill);
+  return span;
+}
+
+async function removeRecord(id) {
+  if (!confirm('이 기록을 삭제할까요?')) return;
+  try {
+    await deleteRecord(id);
+    showMessage('삭제했습니다.', 'success');
+    await renderHistory();
+  } catch (err) {
+    showMessage(err.message, 'error');
+  }
+}
+
+function readLogin() {
+  const email = $('emailInput').value.trim();
+  const password = $('passwordInput').value;
+  if (!email || password.length < 6) {
+    showMessage('이메일과 6자 이상의 비밀번호를 입력해 주세요.', 'error');
+    return null;
+  }
+  return { email, password };
+}
+async function doSignIn(e) {
+  e.preventDefault();
+  if (!db) return showMessage(configError, 'error');
+  const v = readLogin();
+  if (!v) return;
+  try {
+    await signIn(v.email, v.password);
+    $('passwordInput').value = '';
+    showMessage('로그인했습니다.', 'success');
+  } catch (err) {
+    showMessage(err.message, 'error');
+  }
+}
+async function doSignUp() {
+  if (!db) return showMessage(configError, 'error');
+  const v = readLogin();
+  if (!v) return;
+  try {
+    const loggedIn = await signUp(v.email, v.password);
+    $('passwordInput').value = '';
+    showMessage(loggedIn ? '가입했습니다. 바로 사용할 수 있습니다.'
+      : '가입 확인 메일을 보냈습니다. 메일의 링크를 누른 뒤 로그인해 주세요.', 'success');
+  } catch (err) {
+    showMessage(err.message, 'error');
+  }
+}
+async function doSignOut() {
+  try {
+    await signOut();
+    showMessage('로그아웃했습니다.', 'info');
+  } catch (err) {
+    showMessage(err.message, 'error');
+  }
+}
+
+function renderAuth(user) {
+  currentUser = user;
+  document.body.classList.toggle('logged-in', !!user);
+  $('userEmail').textContent = user ? user.email : '';
+  if (user) renderHistory();
+}
+
+// ===== 시작 =====
+$('startInput').value = formatDate(todayDate());
+$('calcForm').addEventListener('submit', doCalc);
+$('saveBtn').addEventListener('click', doSave);
+$('loginForm').addEventListener('submit', doSignIn);
+$('signUpBtn').addEventListener('click', doSignUp);
+$('logoutBtn').addEventListener('click', doSignOut);
+
+if (configError) {
+  showMessage(configError, 'info');
+} else {
+  loadUser().then(renderAuth).catch(err => showMessage(err.message, 'error'));
+  db.auth.onAuthStateChange((_event, session) => {
+    const user = session ? session.user : null;
+    if ((user && user.id) !== (currentUser && currentUser.id)) renderAuth(user);
+  });
+}
+</script>
+</body>
+</html>
